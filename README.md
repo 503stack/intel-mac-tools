@@ -74,16 +74,38 @@ re-run the install step.
 
 ## Using podman on the Intel Mac
 
-The `podman` built here is only the client. Containers run in a Lima VM that
-the updater's `lima` keeps current:
+The `podman` built here is only the client. Containers run in a Lima VM (kept
+current by the updater's `lima`), started on demand:
 
 ```bash
 limactl start --name=podman --cpus=4 --memory=8 --disk=100 --mount-writable --tty=false template:podman
 podman system connection add --default lima-podman "unix://$HOME/.lima/podman/sock/podman.sock"
-limactl autostart enable podman     # boot the VM at login
-# optional, for Docker-API clients (testcontainers, kind, devcontainers, ...):
-export DOCKER_HOST="unix://$HOME/.lima/podman/sock/podman.sock"
+# LLMNR in the Fedora guest collides with macOS on port 5355 (noisy warnings)
+limactl shell podman sudo sh -c 'mkdir -p /etc/systemd/resolved.conf.d && printf "[Resolve]\nLLMNR=no\n" > /etc/systemd/resolved.conf.d/no-llmnr.conf && systemctl restart systemd-resolved'
 ```
+
+In `~/.zshrc`, map `podman machine` onto the VM and point Docker-API clients
+(testcontainers, kind, devcontainers, ...) at the same socket:
+
+```zsh
+export DOCKER_HOST="unix://$HOME/.lima/podman/sock/podman.sock"
+podman() {
+  if [[ $1 == machine ]]; then
+    case $2 in
+      start)   limactl start --tty=false podman; return ;;
+      stop)    limactl stop podman; return ;;
+      list|ls) limactl list podman; return ;;
+      ssh)     shift 2; limactl shell podman "$@"; return ;;
+      *)       print -u2 "podman machine $2: not mapped (VM is Lima instance \"podman\"; use limactl)"; return 1 ;;
+    esac
+  fi
+  command podman "$@"
+}
+```
+
+Then run `podman machine start` when you need it (about 20 s) and
+`podman machine stop` when you're done. To boot it at login instead, run
+`limactl autostart enable podman`.
 
 - `--mount-writable` makes `~` writable in the VM, so `-v "$PWD:/x"` works
   like it does with podman machine. Lima forwards published ports to
@@ -91,5 +113,6 @@ export DOCKER_HOST="unix://$HOME/.lima/podman/sock/podman.sock"
 - The server is whatever the VM's Fedora ships. The v6 client works with any
   server from libpod API 4.0 up, so Fedora 44's podman 5.8 is fine. To get a
   v6 server, upgrade the VM to Fedora 45+ with `dnf system-upgrade` inside
-  `limactl shell podman`.
-- `podman machine` isn't used. There is no x86_64 `applehv` image for v6.
+  `podman machine ssh`.
+- The real `podman machine` isn't used. There is no x86_64 `applehv` image
+  for v6.
