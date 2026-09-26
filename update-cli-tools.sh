@@ -11,36 +11,39 @@ touch "$STATE"
 
 log() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" >> "$LOG"; }
 
-# Self-update: ~/bin/update-cli-tools.sh is a symlink into a clone of
-# 503stack/intel-mac-tools. Fast-forward that clone's main from the public
-# HTTPS URL (no SSH keys needed under launchd), and re-exec once if anything
-# changed. git swaps files in via a new inode, so the copy bash is currently
-# reading isn't disturbed. Any failure just logs and carries on as-is.
+# resolve the ~/bin symlink to the real script inside the repo clone
+SCRIPT="${BASH_SOURCE[0]}"
+while [ -L "$SCRIPT" ]; do
+  link=$(readlink "$SCRIPT")
+  case "$link" in /*) SCRIPT="$link" ;; *) SCRIPT="$(dirname "$SCRIPT")/$link" ;; esac
+done
+REPO=$(cd "$(dirname "$SCRIPT")" && pwd)
+
+# Self-update: fast-forward the clone's main from the public HTTPS URL (no SSH
+# keys needed under launchd), and re-exec once if anything changed. git swaps
+# files in via a new inode, so the copy bash is currently reading isn't
+# disturbed. Any failure just logs and carries on as-is.
 self_update() {
-  local src="${BASH_SOURCE[0]}" target repo before after
-  while [ -L "$src" ]; do
-    target=$(readlink "$src")
-    case "$target" in /*) src="$target" ;; *) src="$(dirname "$src")/$target" ;; esac
-  done
-  repo=$(cd "$(dirname "$src")" && pwd)
-  git -C "$repo" rev-parse --git-dir >/dev/null 2>&1 || return 0
-  if [ "$(git -C "$repo" symbolic-ref --short -q HEAD)" != main ]; then
-    log "self-update: $repo is not on main, skipping"
+  local before after
+  git -C "$REPO" rev-parse --git-dir >/dev/null 2>&1 || return 0
+  if [ "$(git -C "$REPO" symbolic-ref --short -q HEAD)" != main ]; then
+    log "self-update: $REPO is not on main, skipping"
     return 0
   fi
-  before=$(git -C "$repo" rev-parse HEAD)
-  if ! git -C "$repo" fetch --quiet https://github.com/503stack/intel-mac-tools.git main 2>>"$LOG" \
-     || ! git -C "$repo" merge --ff-only --quiet FETCH_HEAD >>"$LOG" 2>&1; then
-    log "WARNING: self-update of $repo failed (offline, local changes or diverged?), running current version"
+  before=$(git -C "$REPO" rev-parse HEAD)
+  if ! git -C "$REPO" fetch --quiet https://github.com/503stack/intel-mac-tools.git main 2>>"$LOG" \
+     || ! git -C "$REPO" merge --ff-only --quiet FETCH_HEAD >>"$LOG" 2>&1; then
+    log "WARNING: self-update of $REPO failed (offline, local changes or diverged?), running current version"
     return 0
   fi
-  after=$(git -C "$repo" rev-parse HEAD)
+  after=$(git -C "$REPO" rev-parse HEAD)
   if [ "$before" != "$after" ]; then
-    log "self-update: $repo ${before:0:7} -> ${after:0:7}, re-running"
-    CLI_TOOLS_SELF_UPDATED=1 exec /bin/bash "$src" "$@"
+    log "self-update: $REPO ${before:0:7} -> ${after:0:7}, re-running"
+    CLI_TOOLS_SELF_UPDATED=1 exec /bin/bash "$SCRIPT" "$@"
   fi
 }
 [ -n "${CLI_TOOLS_SELF_UPDATED:-}" ] || self_update "$@"
+log "run started (script $(git -C "$REPO" rev-parse --short HEAD 2>/dev/null || echo "outside git"))"
 
 current_version() { awk -v k="$1" '$1==k{print $2}' "$STATE"; }
 save_version() {
