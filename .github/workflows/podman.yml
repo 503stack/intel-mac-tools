@@ -38,7 +38,7 @@ jobs:
           repository: containers/podman
           ref: ${{ steps.tag.outputs.tag }}
 
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@v7
         if: steps.tag.outputs.skip != 'true'
         with:
           go-version-file: go.mod
