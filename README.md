@@ -39,8 +39,11 @@ mkdir -p ~/bin
 ln -sf ~/git/intel-mac-tools/update-cli-tools.sh ~/bin/update-cli-tools.sh
 ```
 
-Because `~/bin` holds a symlink, committed and pulled changes take effect on
-the next run. Add `~/bin`, `~/lib/azure-cli/bin`, and `~/lib/lima/bin` to
+Because `~/bin` holds a symlink, and each run first fast-forwards the clone's
+`main` from GitHub over HTTPS (re-running itself if the script changed),
+anything merged to `main` takes effect on the next run, with no manual
+`git pull`. If the clone has local changes, has diverged, or isn't on `main`,
+the self-update is skipped with a note in the log. Add `~/bin`, `~/lib/azure-cli/bin`, and `~/lib/lima/bin` to
 `PATH`.
 
 ### Scheduling (LaunchAgent)

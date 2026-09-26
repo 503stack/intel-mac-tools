@@ -8,8 +8,10 @@ This repo holds two things:
 
 1. `update-cli-tools.sh`, the maintainer's updater for the CLI tools in
    `~/bin`. `~/bin/update-cli-tools.sh` is a symlink to this file, and a
-   LaunchAgent runs it unattended at login and weekly, so a broken commit
-   breaks updates on the Mac.
+   LaunchAgent runs it unattended at login and weekly. Each run first
+   fast-forwards that clone from GitHub (`self_update`), so **anything merged
+   to `main` goes live on the Mac at the next run**, and a broken commit
+   breaks updates there.
 2. CI workflows that build CLI tools for **Intel Macs (darwin/amd64)** when
    upstream stopped shipping Intel Mac builds (podman) or never shipped
    Mac binaries at all (bash). The repo contains
