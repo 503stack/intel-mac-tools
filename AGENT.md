@@ -4,18 +4,21 @@ Guidance for AI coding agents (and humans) working in this repo.
 
 ## What this repo is
 
-This repo holds CI workflows that build CLI tools for **Intel Macs
-(darwin/amd64)** after their upstream projects stop shipping Intel Mac builds.
-It contains no tool source code. Each workflow checks out upstream at a release
-tag, builds it, and publishes a GitHub release here.
+This repo holds two things:
 
-The consumer is `~/bin/update-cli-tools.sh` on the maintainer's Intel Mac.
-That script runs on a schedule and installs each tool from this repo's
-releases.
+1. `update-cli-tools.sh`, the maintainer's updater for the CLI tools in
+   `~/bin`. `~/bin/update-cli-tools.sh` is a symlink to this file, and a
+   LaunchAgent runs it unattended at login and weekly, so a broken commit
+   breaks updates on the Mac.
+2. CI workflows that build CLI tools for **Intel Macs (darwin/amd64)** after
+   their upstream projects stop shipping Intel Mac builds. The repo contains no tool source code. Each workflow checks out upstream at a
+   release tag, builds it, and publishes a GitHub release here, which
+   `update-cli-tools.sh` then installs.
 
 ## Layout
 
 - `.github/workflows/<tool>.yml`: one self-contained workflow per tool.
+- `update-cli-tools.sh`: the updater, with one `### <tool> ###` block per tool.
 - `README.md`: a table of tools, with release tag, asset name, and notes. Keep
   it in sync with the workflows.
 
@@ -40,7 +43,21 @@ releases.
   workflow.
 
 If you change any of these rules, update the tool's block in
-`update-cli-tools.sh` in the same change.
+`update-cli-tools.sh` in the same commit.
+
+## Editing update-cli-tools.sh
+
+- It runs unattended under `set -uo pipefail` (no `-e`), so one tool failing
+  must not stop the others. Keep the `update <name> <version> <install_fn>
+  <url> [extra]` pattern, and log errors instead of exiting.
+- Run `bash -n update-cli-tools.sh && shellcheck update-cli-tools.sh` before
+  committing (shellcheck is one of the tools it installs).
+- Keep `fetch` as the only way it downloads API responses: it reads the whole
+  response before parsing (see the SIGPIPE comment in the script) and adds
+  the GitHub token.
+- Only download x86_64/amd64 Mac assets. The target Mac is Intel.
+- Tools with no working upstream Intel Mac build belong in a workflow here,
+  installed with `imt_latest_tag`. Don't compile them in the script.
 
 ## Workflow conventions
 
@@ -93,7 +110,7 @@ change behavior.
 3. Add a row to the README table.
 4. Push, then trigger it with `gh workflow run <tool>.yml --repo
    503stack/intel-mac-tools` and watch it with `gh run watch`.
-5. Add the consumer block to `update-cli-tools.sh`:
+5. Add the consumer block to `update-cli-tools.sh` in this repo:
 
    ```bash
    ### <tool> (built in 503stack/intel-mac-tools: <why>) ###
