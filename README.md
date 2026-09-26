@@ -90,22 +90,47 @@ In `~/.zshrc`, map `podman machine` onto the VM and point Docker-API clients
 ```zsh
 export DOCKER_HOST="unix://$HOME/.lima/podman/sock/podman.sock"
 podman() {
-  if [[ $1 == machine ]]; then
-    case $2 in
-      start)   limactl start --tty=false podman; return ;;
-      stop)    limactl stop podman; return ;;
-      list|ls) limactl list podman; return ;;
-      ssh)     shift 2; limactl shell podman "$@"; return ;;
-      *)       print -u2 "podman machine $2: not mapped (VM is Lima instance \"podman\"; use limactl)"; return 1 ;;
-    esac
+  if [[ $1 != machine ]]; then
+    command podman "$@"; return
   fi
-  command podman "$@"
+  local vm=podman was_running
+  case $2 in
+    start)   limactl start --tty=false $vm ;;
+    stop)    limactl stop $vm ;;
+    list|ls) limactl list $vm ;;
+    ssh)     shift 2; limactl shell $vm "$@" ;;
+    update)  # dnf upgrade inside the VM; leaves it running/stopped as it was
+      [[ $(limactl list --format '{{.Status}}' $vm 2>/dev/null) == Running ]] && was_running=1
+      [[ -n $was_running ]] || limactl start --tty=false $vm 2>/dev/null || return
+      limactl shell $vm sudo dnf -y upgrade --refresh || return
+      if ! limactl shell $vm sh -c '[ "$(uname -r)" = "$(rpm -q --qf "%{VERSION}-%{RELEASE}.%{ARCH}\n" kernel-core | sort -V | tail -1)" ]'; then
+        [[ -n $was_running ]] && print "New kernel installed: run 'podman machine stop && podman machine start' to boot it."
+      fi
+      [[ -n $was_running ]] || limactl stop $vm 2>/dev/null ;;
+    reset)   # delete and recreate the VM from the current Lima template image
+      if [[ $3 != -f ]]; then
+        read -q "?Delete VM '$vm' with ALL its images, containers and volumes, then recreate it? [y/N] " || { print; return 1; }
+        print
+      fi
+      limactl delete -f $vm 2>/dev/null
+      limactl start --name=$vm --cpus=4 --memory=8 --disk=100 --mount-writable --tty=false template:podman || return
+      # LLMNR in the Fedora guest collides with macOS on port 5355 (noisy forward warnings)
+      limactl shell $vm sudo sh -c 'mkdir -p /etc/systemd/resolved.conf.d && printf "[Resolve]\nLLMNR=no\n" > /etc/systemd/resolved.conf.d/no-llmnr.conf && systemctl restart systemd-resolved' ;;
+    *)       print -u2 "podman machine ${2:-}: not mapped; use start|stop|list|ssh|update|reset [-f] (VM is Lima instance \"$vm\")"; return 1 ;;
+  esac
 }
 ```
 
-Then run `podman machine start` when you need it (about 20 s) and
-`podman machine stop` when you're done. To boot it at login instead, run
-`limactl autostart enable podman`.
+Then:
+
+| Command | Does |
+|---------|------|
+| `podman machine start` / `stop` | Boot or shut down the VM (start takes about 20 s) |
+| `podman machine list` / `ssh [cmd]` | Show status, or open a shell (or run `cmd`) in the VM |
+| `podman machine update` | `dnf upgrade` in the VM, starting it if needed and leaving it as it was. Says when a new kernel needs a restart |
+| `podman machine reset [-f]` | Delete the VM and everything in it, and recreate it from the current Lima template image. Asks first unless `-f`. Run `update` afterwards, because the template image is from the Fedora release date |
+
+To boot it at login instead, run `limactl autostart enable podman`.
 
 - `--mount-writable` makes `~` writable in the VM, so `-v "$PWD:/x"` works
   like it does with podman machine. Lima forwards published ports to
