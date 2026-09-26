@@ -75,14 +75,9 @@ re-run the install step.
 ## Using podman on the Intel Mac
 
 The `podman` built here is only the client. Containers run in a Lima VM (kept
-current by the updater's `lima`), started on demand:
-
-```bash
-limactl start --name=podman --cpus=4 --memory=8 --disk=100 --mount-writable --tty=false template:podman
-podman system connection add --default lima-podman "unix://$HOME/.lima/podman/sock/podman.sock"
-# LLMNR in the Fedora guest collides with macOS on port 5355 (noisy warnings)
-limactl shell podman sudo sh -c 'mkdir -p /etc/systemd/resolved.conf.d && printf "[Resolve]\nLLMNR=no\n" > /etc/systemd/resolved.conf.d/no-llmnr.conf && systemctl restart systemd-resolved'
-```
+current by the updater's `lima`), started on demand. The VM runs **Fedora 45**
+(Beta, until it's released and Lima's `template:podman` moves to it), which
+ships a podman 6 server to match the client.
 
 In `~/.zshrc`, map `podman machine` onto the VM and point Docker-API clients
 (testcontainers, kind, devcontainers, ...) at the same socket:
@@ -113,15 +108,27 @@ podman() {
         print
       fi
       limactl delete -f $vm 2>/dev/null
-      limactl start --name=$vm --cpus=4 --memory=8 --disk=100 --mount-writable --tty=false template:podman || return
+      # Fedora 45 Beta (podman 6) until Lima's template:podman moves past Fedora 44; then drop --set
+      limactl start --name=$vm --cpus=4 --memory=8 --disk=100 --mount-writable --tty=false \
+        --set '.images = [{"location": "https://download.fedoraproject.org/pub/fedora/linux/releases/test/45_Beta/Cloud/x86_64/images/Fedora-Cloud-Base-Generic-45_Beta-1.3.x86_64.qcow2", "arch": "x86_64", "digest": "sha256:06bd4382a3bc5e5f94cd520f9ee15bdfb38d7bb72552b27fe06d581ba9a84292"}]' \
+        template:podman || return
       # LLMNR in the Fedora guest collides with macOS on port 5355 (noisy forward warnings)
-      limactl shell $vm sudo sh -c 'mkdir -p /etc/systemd/resolved.conf.d && printf "[Resolve]\nLLMNR=no\n" > /etc/systemd/resolved.conf.d/no-llmnr.conf && systemctl restart systemd-resolved' ;;
+      limactl shell $vm sudo sh -c 'mkdir -p /etc/systemd/resolved.conf.d && printf "[Resolve]\nLLMNR=no\n" > /etc/systemd/resolved.conf.d/no-llmnr.conf && systemctl restart systemd-resolved'
+      # Fedora 45 SELinux denies sshd-session (sshd_session_t) connectto the podman socket
+      # (container_runtime_t), which breaks Lima's ssh socket forward to the host
+      limactl shell $vm sudo sh -c 'printf "(allow sshd_session_t container_runtime_t (unix_stream_socket (connectto)))\n" > /root/lima-podman-socket.cil && semodule -i /root/lima-podman-socket.cil'
+      print "Fresh VM: run 'podman machine update' to bring it past the image's release-day packages." ;;
     *)       print -u2 "podman machine ${2:-}: not mapped; use start|stop|list|ssh|update|reset [-f] (VM is Lima instance \"$vm\")"; return 1 ;;
   esac
 }
 ```
 
-Then:
+Then create the VM once, and add the connection:
+
+```bash
+podman machine reset -f && podman machine update
+podman system connection add --default lima-podman "unix://$HOME/.lima/podman/sock/podman.sock"
+```
 
 | Command | Does |
 |---------|------|
@@ -135,9 +142,18 @@ To boot it at login instead, run `limactl autostart enable podman`.
 - `--mount-writable` makes `~` writable in the VM, so `-v "$PWD:/x"` works
   like it does with podman machine. Lima forwards published ports to
   `localhost` automatically.
-- The server is whatever the VM's Fedora ships. The v6 client works with any
-  server from libpod API 4.0 up, so Fedora 44's podman 5.8 is fine. To get a
-  v6 server, upgrade the VM to Fedora 45+ with `dnf system-upgrade` inside
-  `podman machine ssh`.
+- `reset` builds the VM with these fixes on top of `template:podman`:
+  - **Fedora 45 Beta image**, pinned by URL and SHA-256 via `--set '.images=…'`.
+    Once Fedora 45 is out the VM just keeps updating. Remove the `--set` when
+    Lima's template ships Fedora 45 or later.
+  - **SELinux:** Fedora 45's policy denies `sshd_session_t` (OpenSSH 10's
+    `sshd-session`) `connectto` on the rootless podman socket
+    (`container_runtime_t`). That breaks Lima's ssh socket forward (the host
+    sees an empty reply) while podman works fine inside the guest. A one-rule
+    CIL module (`lima-podman-socket`) allows exactly that, and SELinux stays
+    enforcing.
+  - **LLMNR off** in the guest, to stop port 5355 forward warnings.
+- The v6 client also works with older servers (libpod API 4.0 and up), for
+  example Fedora 44's podman 5.8.
 - The real `podman machine` isn't used. There is no x86_64 `applehv` image
   for v6.
