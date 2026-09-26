@@ -7,6 +7,8 @@ that watches upstream releases and publishes a matching release here, tagged
 
 | Tool | Release tag | Asset | Notes |
 |------|-------------|-------|-------|
-| podman | `podman/vX.Y.Z` | `podman-remote-darwin-amd64.tar.gz` | Remote client only (`podman`), cross-compiled with CGO off. Podman 6 dropped Intel Macs and has no x86_64 `applehv` machine image, so point it at a Linux host or VM running podman (e.g. Lima's `podman` template). |
+| podman | `podman/vX.Y.Z` | `podman-remote-darwin-amd64.tar.gz` | Remote client only (`podman`), cross-compiled with CGO off; two build tags patched back to their v5 values. Podman 6 dropped Intel Macs and has no x86_64 `applehv` machine image, so point it at a Linux host or VM running podman (e.g. Lima's `podman` template). |
 
-These are unofficial builds from unmodified upstream sources.
+These are unofficial builds. Upstream sources are used as-is except where a
+workflow has to undo an Intel-Mac exclusion (e.g. podman's `//go:build` tags);
+each such patch is a separate, clearly named workflow step.

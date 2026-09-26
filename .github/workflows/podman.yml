@@ -43,6 +43,20 @@ jobs:
         with:
           go-version-file: go.mod
 
+      # v6 excludes darwin/amd64 via build tags; relax them back to what they
+      # were in v5. Fails if upstream changes these lines so we notice.
+      - name: Re-enable darwin/amd64
+        if: steps.tag.outputs.skip != 'true'
+        run: |
+          patch_tag() {
+            local file="$1" from="$2" to="$3"
+            grep -qxF "//go:build $from" "$file" || { echo "::error file=$file::expected '//go:build $from'"; exit 1; }
+            sed -i "1s|^//go:build .*|//go:build $to|" "$file"
+          }
+          patch_tag pkg/machine/libkrun/stubber.go "darwin && arm64" "darwin"
+          patch_tag cmd/podman/machine/machine.go "(amd64 && !darwin) || arm64" "amd64 || arm64"
+          git diff --stat
+
       # mirrors upstream's `podman-remote-release-%.zip` cross build, calling
       # go build directly since the Makefile now refuses darwin/amd64
       - name: Build
