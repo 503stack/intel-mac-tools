@@ -1,0 +1,44 @@
+name: renovate-config
+
+# Checks renovate.json on every change to it (a broken config would silently
+# stop all version bumps), and dry-runs the dependency lookups so the log
+# shows which upstream versions Renovate sees for each pinned tool.
+on:
+  push:
+    branches: [main]
+    paths: [renovate.json, .github/workflows/renovate-config.yml]
+  pull_request:
+    paths: [renovate.json, .github/workflows/renovate-config.yml]
+  workflow_dispatch:
+
+env:
+  # renovate: datasource=npm depName=renovate
+  RENOVATE_VERSION: 44.115.10
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+
+      - name: Validate config
+        run: npx --yes --package "renovate@$RENOVATE_VERSION" -- renovate-config-validator --strict renovate.json
+
+      # --platform=local reads this checkout; no PRs or branches are touched
+      - name: Dry-run lookups
+        env:
+          RENOVATE_GITHUB_COM_TOKEN: ${{ github.token }}
+          LOG_LEVEL: info
+        run: |
+          npx --yes --package "renovate@$RENOVATE_VERSION" -- renovate \
+            --platform=local --dry-run=lookup --report-type=logging 2>&1 | tee renovate.log
+          if grep -E '"level":(50|60)|ERROR:|FATAL:' renovate.log; then
+            echo "::error::Renovate reported errors (above)"; exit 1
+          fi

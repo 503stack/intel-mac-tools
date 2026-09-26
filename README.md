@@ -5,6 +5,11 @@ stopped shipping them, or never shipped Mac binaries at all. Each tool has its
 own workflow in `.github/workflows/` that watches upstream releases and
 publishes a matching release here, tagged `<tool>/<upstream tag>`.
 
+Upstream versions are pinned in each workflow and kept current by
+[Renovate](https://docs.renovatebot.com/). A bump PR builds the tool as a
+check, Renovate automerges it when the build passes, and the merge publishes
+the new release.
+
 It also holds `update-cli-tools.sh`, the updater that keeps a curated set of
 CLI tools in `~/bin` current. It pulls each tool from its official release
 channel (bypassing Homebrew/MacPorts), and pulls the tools built here from

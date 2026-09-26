@@ -2,15 +2,20 @@ name: podman
 
 # Cross-compiles the podman-remote client for Intel Macs (darwin/amd64), which
 # upstream stopped shipping in v6. Pure Go with CGO off, so a Linux runner is
-# enough. Runs daily and publishes a release tagged "podman/<upstream tag>".
+# enough. The upstream version is pinned below and bumped by Renovate: its PR
+# runs this as a build-only check (gating automerge), and the merge to main
+# builds again and publishes a release tagged "podman/<upstream tag>".
 on:
-  schedule:
-    - cron: "17 5 * * *"
+  push:
+    branches: [main]
+    paths: [.github/workflows/podman.yml]
+  pull_request:
+    paths: [.github/workflows/podman.yml]
   workflow_dispatch:
-    inputs:
-      tag:
-        description: "Upstream podman tag to build (default: latest release)"
-        required: false
+
+env:
+  # renovate: datasource=github-releases depName=containers/podman
+  PODMAN_VERSION: v6.1.2
 
 permissions:
   contents: write
@@ -19,16 +24,16 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Resolve upstream tag
+      # PRs always build (that's the check); pushes skip if already released,
+      # e.g. when only an action version changed
+      - name: Check release
         id: tag
         env:
           GH_TOKEN: ${{ github.token }}
-          INPUT_TAG: ${{ inputs.tag }}
         run: |
-          tag="${INPUT_TAG:-$(gh release view --repo containers/podman --json tagName -q .tagName)}"
-          echo "tag=$tag" >> "$GITHUB_OUTPUT"
-          if gh release view "podman/$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            echo "$tag already released, nothing to do"
+          echo "tag=$PODMAN_VERSION" >> "$GITHUB_OUTPUT"
+          if [ "$GITHUB_EVENT_NAME" != pull_request ] && gh release view "podman/$PODMAN_VERSION" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "podman/$PODMAN_VERSION already released, nothing to do"
             echo "skip=true" >> "$GITHUB_OUTPUT"
           fi
 
@@ -65,8 +70,10 @@ jobs:
           GOOS: darwin
           GOARCH: amd64
           CGO_ENABLED: "0"
-          LIBPOD: go.podman.io/podman/v6/libpod
         run: |
+          # module path includes the major version (…/v6); -X silently ignores
+          # unknown symbols, so derive it rather than hard-coding
+          LIBPOD="$(go list -m)/libpod"
           go build -trimpath \
             -tags "remote exclude_graphdriver_btrfs containers_image_openpgp" \
             -ldflags "-X $LIBPOD/define.gitCommit=$(git rev-parse HEAD) \
@@ -76,11 +83,12 @@ jobs:
                       -X $LIBPOD/config._etcDir=/etc" \
             -o podman ./cmd/podman
           file podman
+          grep -q "github.com/$GITHUB_REPOSITORY" podman || { echo "::error::version stamping (-X ldflags) did not apply"; exit 1; }
           tar czf podman-remote-darwin-amd64.tar.gz podman
           sha256sum podman-remote-darwin-amd64.tar.gz > podman-remote-darwin-amd64.tar.gz.sha256
 
       - name: Release
-        if: steps.tag.outputs.skip != 'true'
+        if: steps.tag.outputs.skip != 'true' && github.event_name != 'pull_request'
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.tag.outputs.tag }}
