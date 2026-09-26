@@ -2,5 +2,50 @@
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": [
     "config:recommended"
+  ],
+  "automerge": true,
+  "automergeType": "pr",
+  "platformAutomerge": false,
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "Upstream tool versions pinned in the build workflows",
+      "managerFilePatterns": [
+        "/^\\.github/workflows/[^/]+\\.ya?ml$/"
+      ],
+      "matchStrings": [
+        "# renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+)(?: packageName=(?<packageName>\\S+))?\\s+[A-Z_]+: \"?(?<currentValue>[^\"\\s]+)\"?"
+      ]
+    }
+  ],
+  "customDatasources": {
+    "gnu-bash": {
+      "description": "Base releases from the ftp.gnu.org/gnu/bash listing (bash-X.Y.tar.gz)",
+      "defaultRegistryUrlTemplate": "https://ftp.gnu.org/gnu/bash/",
+      "format": "html"
+    },
+    "gnu-bash-patches": {
+      "description": "Official patches for one base version; packageName is the base, e.g. 5.3",
+      "defaultRegistryUrlTemplate": "https://ftp.gnu.org/gnu/bash/bash-{{packageName}}-patches/",
+      "format": "html"
+    }
+  },
+  "packageRules": [
+    {
+      "description": "Only X.Y base tarballs; bash-X.Y.Z.tar.gz are old pre-patched snapshots",
+      "matchDatasources": [
+        "custom.gnu-bash"
+      ],
+      "extractVersion": "^bash-(?<version>\\d+\\.\\d+)\\.tar\\.gz$",
+      "versioning": "loose"
+    },
+    {
+      "description": "Patch files are bashXY-NNN; keep the zero-padded NNN (skip .sig files)",
+      "matchDatasources": [
+        "custom.gnu-bash-patches"
+      ],
+      "extractVersion": "^bash\\d+-(?<version>\\d{3})$",
+      "versioning": "regex:^(?<major>\\d+)$"
+    }
   ]
 }

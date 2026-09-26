@@ -24,6 +24,8 @@ This repo holds two things:
 - `launchd/*.plist.template`: the LaunchAgent that schedules the updater.
   `__HOME__` is filled in at install time (see README). Keep it identical to
   the installed plist apart from that placeholder.
+- `renovate.json`: Renovate config. It bumps the pinned upstream versions
+  and the action versions, and automerges every PR once its checks pass.
 - `README.md`: a table of tools, with release tag, asset name, and notes. Keep
   it in sync with the workflows.
 
@@ -70,15 +72,48 @@ If you change any of these rules, update the tool's block in
 - Tools with no working upstream Intel Mac build belong in a workflow here,
   installed with `imt_latest_tag`. Don't compile them in the script.
 
+## How versions flow (Renovate)
+
+1. Each build workflow pins its upstream version in top-level `env:`, with a
+   `# renovate: datasource=… depName=… [packageName=…]` comment on the line
+   above. The regex custom manager in `renovate.json` picks these up.
+2. The Mend Renovate app opens a PR that bumps the value. Because the PR
+   changes `.github/workflows/<tool>.yml`, that tool's workflow runs on
+   `pull_request` as a **build-only check**, with no release.
+3. Renovate automerges once all checks are green (`platformAutomerge: false`
+   means Renovate itself waits for the checks, with no branch protection
+   needed). A failing build blocks the merge and leaves the PR open.
+4. The merge pushes to `main`, and the workflow builds again and publishes
+   `<tool>/<version>`. If that release already exists (e.g. the PR only bumped
+   `actions/checkout`), the push run skips.
+5. `update-cli-tools.sh` installs the new release on its next scheduled run.
+
+Rules that follow from this:
+
+- Each workflow's `paths:` filter must list only its own file, so a bump
+  rebuilds just that tool.
+- Never resolve "latest" at build time. Builds must be reproducible from the
+  pinned value, and Renovate is the only thing that moves it.
+- Upstreams without a standard Renovate datasource get a `customDatasources`
+  entry (bash reads the ftp.gnu.org directory listings with `format: html`
+  and `extractVersion`). Test lookups with the `renovate-config` workflow,
+  which validates the config and dry-runs every lookup.
+- **bash base upgrades (e.g. 5.3 → 5.4) need a human.** The patch-level dep's
+  `packageName` names the base, and its value must go back to `"000"`.
+  Renovate's base-bump PR will fail its check (the old patch numbers don't
+  exist for the new base), so fix those two lines in that PR by hand.
+
 ## Workflow conventions
 
 Follow `.github/workflows/podman.yml` as the template:
 
-1. **Triggers:** a daily `schedule` (pick an off-minute cron) plus
-   `workflow_dispatch` with an optional `tag` input, so an older or specific
-   upstream version can be built by hand.
-2. **Idempotent:** the first step works out the upstream tag, and every later
-   step is skipped if `<tool>/<tag>` is already released here.
+1. **Triggers:** `push` to `main` and `pull_request`, both filtered by
+   `paths: [.github/workflows/<tool>.yml]`, plus `workflow_dispatch`. No
+   schedule, because Renovate drives updates.
+2. **Idempotent:** the first step computes the release tag from the pinned
+   version. On push or dispatch, later steps are skipped if that release
+   exists. On `pull_request` it always builds, and the Release step is
+   gated with `github.event_name != 'pull_request'`.
 3. **Cheap runners:** use `ubuntu-latest` and cross-compile
    (e.g. Go with `GOOS=darwin GOARCH=amd64 CGO_ENABLED=0`). Use a
    `macos-*` runner only if the build really needs the macOS SDK or cgo, and
@@ -112,19 +147,20 @@ change behavior.
 
 ## Adding a new tool
 
-1. Confirm upstream really doesn't ship a usable darwin/amd64 build. Check which assets the latest
-   release actually has, and read the release notes. Also check whether the
-   tool needs a runtime piece that doesn't exist for Intel Macs, such as a VM
-   image or helper binaries. If it does, say so in the README instead of
-   shipping a binary that can't work.
+1. Confirm upstream really doesn't ship a usable darwin/amd64 build. Check
+   which assets the latest release actually has, and read the release notes.
+   Also check whether the tool needs a runtime piece that doesn't exist for
+   Intel Macs, such as a VM image or helper binaries. If it does, say so in
+   the README instead of shipping a binary that can't work.
 2. Copy the closest existing workflow to `<tool>.yml` and adapt it. For
    pure-Go tools cross-compiled on Linux, start from `podman.yml`. For C or
    autoconf tools that need the macOS SDK, start from `bash.yml`, which runs
    natively on `macos-26-intel`, verifies GPG signatures on the sources, and
    fails if anything outside `/usr/lib` or `/System` gets linked.
 3. Add a row to the README table.
-4. Push, then trigger it with `gh workflow run <tool>.yml --repo
-   503stack/intel-mac-tools` and watch it with `gh run watch`.
+4. Add the `# renovate:` comment above the pinned version (plus a custom
+   datasource if needed), and open a PR. The PR run is the test. Merging it
+   publishes the first release.
 5. Add the consumer block to `update-cli-tools.sh` in this repo:
 
    ```bash
@@ -143,6 +179,10 @@ change behavior.
   lacks the `workflow` scope, so HTTPS pushes that touch
   `.github/workflows/` are rejected.
 - Workflows rely on the default `GITHUB_TOKEN` with `contents: write`; no
-  secrets are needed.
+  secrets are needed. Renovate runs as the Mend app, which can change
+  workflow files.
+- ldflags `-X` silently ignores unknown symbol paths. Derive module paths at
+  build time (e.g. `$(go list -m)`), and check that the stamp landed in the
+  binary, so a major-version bump can't quietly drop version info.
 - These are unofficial builds. Keep the release notes clear about that and
   link to the exact upstream tag.
