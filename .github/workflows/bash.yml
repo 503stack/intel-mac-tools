@@ -54,7 +54,7 @@ jobs:
           BASE: ${{ steps.ver.outputs.base }}
         run: |
           curl -fsSLO https://ftp.gnu.org/gnu/gnu-keyring.gpg
-          verify() { curl -fsSLO "$1" && curl -fsSLO "$1.sig" && gpgv --keyring ./gnu-keyring.gpg "$(basename "$1").sig" "$(basename "$1")"; }
+          verify() { curl -fsSLO "$1" && curl -fsSLO "$1.sig" && gpgv --keyring "$GITHUB_WORKSPACE/gnu-keyring.gpg" "$(basename "$1").sig" "$(basename "$1")"; }
           verify "$GNU/bash-$BASE.tar.gz"
           mkdir patches
           while read -r p; do
