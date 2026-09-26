@@ -71,3 +71,25 @@ launchctl bootout gui/$(id -u) ~/Library/LaunchAgents/com.bengt.cli-tools-update
 
 To change the schedule, edit `StartCalendarInterval` in the template and
 re-run the install step.
+
+## Using podman on the Intel Mac
+
+The `podman` built here is only the client. Containers run in a Lima VM that
+the updater's `lima` keeps current:
+
+```bash
+limactl start --name=podman --cpus=4 --memory=8 --disk=100 --mount-writable --tty=false template:podman
+podman system connection add --default lima-podman "unix://$HOME/.lima/podman/sock/podman.sock"
+limactl autostart enable podman     # boot the VM at login
+# optional, for Docker-API clients (testcontainers, kind, devcontainers, ...):
+export DOCKER_HOST="unix://$HOME/.lima/podman/sock/podman.sock"
+```
+
+- `--mount-writable` makes `~` writable in the VM, so `-v "$PWD:/x"` works
+  like it does with podman machine. Lima forwards published ports to
+  `localhost` automatically.
+- The server is whatever the VM's Fedora ships. The v6 client works with any
+  server from libpod API 4.0 up, so Fedora 44's podman 5.8 is fine. To get a
+  v6 server, upgrade the VM to Fedora 45+ with `dnf system-upgrade` inside
+  `limactl shell podman`.
+- `podman machine` isn't used. There is no x86_64 `applehv` image for v6.
