@@ -29,9 +29,36 @@ Setup on the Mac:
 
 ```bash
 git clone git@github.com:503stack/intel-mac-tools.git ~/git/intel-mac-tools
+mkdir -p ~/bin
 ln -sf ~/git/intel-mac-tools/update-cli-tools.sh ~/bin/update-cli-tools.sh
 ```
 
-A LaunchAgent (`~/Library/LaunchAgents/com.bengt.cli-tools-update.plist`)
-runs it at login and every Monday 09:00. Because `~/bin` holds a symlink,
-committed changes take effect on the next run.
+Because `~/bin` holds a symlink, committed and pulled changes take effect on
+the next run. Add `~/bin`, `~/lib/azure-cli/bin`, and `~/lib/lima/bin` to
+`PATH`.
+
+### Scheduling (LaunchAgent)
+
+`launchd/com.bengt.cli-tools-update.plist.template` runs the updater at login
+and every Monday 09:00, logging to `~/Library/Logs/cli-tools-update.log`.
+launchd doesn't expand `~` or `$HOME`, so the template uses `__HOME__` in
+place of your home directory, and the install step below fills it in:
+
+```bash
+plist=~/Library/LaunchAgents/com.bengt.cli-tools-update.plist
+sed "s|__HOME__|$HOME|g" ~/git/intel-mac-tools/launchd/com.bengt.cli-tools-update.plist.template > "$plist"
+launchctl bootout gui/$(id -u) "$plist" 2>/dev/null  # if already loaded
+launchctl bootstrap gui/$(id -u) "$plist"             # RunAtLoad: runs once now
+```
+
+Other useful commands:
+
+```bash
+launchctl kickstart gui/$(id -u)/com.bengt.cli-tools-update   # run now
+launchctl print gui/$(id -u)/com.bengt.cli-tools-update        # status, last exit code
+tail -f ~/Library/Logs/cli-tools-update.log
+launchctl bootout gui/$(id -u) ~/Library/LaunchAgents/com.bengt.cli-tools-update.plist  # uninstall
+```
+
+To change the schedule, edit `StartCalendarInterval` in the template and
+re-run the install step.

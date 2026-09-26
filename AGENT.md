@@ -11,14 +11,18 @@ This repo holds two things:
    LaunchAgent runs it unattended at login and weekly, so a broken commit
    breaks updates on the Mac.
 2. CI workflows that build CLI tools for **Intel Macs (darwin/amd64)** after
-   their upstream projects stop shipping Intel Mac builds. The repo contains no tool source code. Each workflow checks out upstream at a
-   release tag, builds it, and publishes a GitHub release here, which
+   their upstream projects stop shipping Intel Mac builds. The repo contains
+   no tool source code. Each workflow checks out upstream at a release tag,
+   builds it, and publishes a GitHub release here, which
    `update-cli-tools.sh` then installs.
 
 ## Layout
 
 - `.github/workflows/<tool>.yml`: one self-contained workflow per tool.
 - `update-cli-tools.sh`: the updater, with one `### <tool> ###` block per tool.
+- `launchd/*.plist.template`: the LaunchAgent that schedules the updater.
+  `__HOME__` is filled in at install time (see README). Keep it identical to
+  the installed plist apart from that placeholder.
 - `README.md`: a table of tools, with release tag, asset name, and notes. Keep
   it in sync with the workflows.
 
