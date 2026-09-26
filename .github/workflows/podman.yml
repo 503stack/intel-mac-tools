@@ -1,0 +1,79 @@
+name: podman
+
+# Cross-compiles the podman-remote client for Intel Macs (darwin/amd64), which
+# upstream stopped shipping in v6. Pure Go with CGO off, so a Linux runner is
+# enough. Runs daily and publishes a release tagged "podman/<upstream tag>".
+on:
+  schedule:
+    - cron: "17 5 * * *"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Upstream podman tag to build (default: latest release)"
+        required: false
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Resolve upstream tag
+        id: tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          tag="${INPUT_TAG:-$(gh release view --repo containers/podman --json tagName -q .tagName)}"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          if gh release view "podman/$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "$tag already released, nothing to do"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@v5
+        if: steps.tag.outputs.skip != 'true'
+        with:
+          repository: containers/podman
+          ref: ${{ steps.tag.outputs.tag }}
+
+      - uses: actions/setup-go@v6
+        if: steps.tag.outputs.skip != 'true'
+        with:
+          go-version-file: go.mod
+
+      # mirrors upstream's `podman-remote-release-%.zip` cross build, calling
+      # go build directly since the Makefile now refuses darwin/amd64
+      - name: Build
+        if: steps.tag.outputs.skip != 'true'
+        env:
+          GOOS: darwin
+          GOARCH: amd64
+          CGO_ENABLED: "0"
+          LIBPOD: go.podman.io/podman/v6/libpod
+        run: |
+          go build -trimpath \
+            -tags "remote exclude_graphdriver_btrfs containers_image_openpgp" \
+            -ldflags "-X $LIBPOD/define.gitCommit=$(git rev-parse HEAD) \
+                      -X $LIBPOD/define.buildInfo=$(date +%s) \
+                      -X '$LIBPOD/define.buildOrigin=github.com/$GITHUB_REPOSITORY' \
+                      -X $LIBPOD/config._installPrefix=/usr/local \
+                      -X $LIBPOD/config._etcDir=/etc" \
+            -o podman ./cmd/podman
+          file podman
+          tar czf podman-remote-darwin-amd64.tar.gz podman
+          sha256sum podman-remote-darwin-amd64.tar.gz > podman-remote-darwin-amd64.tar.gz.sha256
+
+      - name: Release
+        if: steps.tag.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          gh release create "podman/$TAG" \
+            podman-remote-darwin-amd64.tar.gz podman-remote-darwin-amd64.tar.gz.sha256 \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "podman-remote $TAG (darwin/amd64)" \
+            --latest=false \
+            --notes "Unofficial podman-remote client for Intel Macs, cross-compiled from [containers/podman@$TAG](https://github.com/containers/podman/releases/tag/$TAG)."
