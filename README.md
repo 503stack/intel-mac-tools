@@ -1,9 +1,9 @@
 # intel-mac-tools
 
 Builds of CLI tools for Intel Macs (darwin/amd64) whose upstream projects have
-stopped shipping them. Each tool has its own workflow in `.github/workflows/`
-that watches upstream releases and publishes a matching release here, tagged
-`<tool>/<upstream tag>`.
+stopped shipping them, or never shipped Mac binaries at all. Each tool has its
+own workflow in `.github/workflows/` that watches upstream releases and
+publishes a matching release here, tagged `<tool>/<upstream tag>`.
 
 It also holds `update-cli-tools.sh`, the updater that keeps a curated set of
 CLI tools in `~/bin` current. It pulls each tool from its official release
@@ -12,6 +12,7 @@ this repo's releases.
 
 | Tool | Release tag | Asset | Notes |
 |------|-------------|-------|-------|
+| bash | `bash/X.Y.N` | `bash-darwin-amd64.tar.gz` | GNU bash `X.Y` tarball plus official patches `001`..`N` (bash has no git tags), GPG-verified against the GNU keyring. Built natively on `macos-26-intel` (C needs the macOS SDK), linked only against system libraries, NLS disabled. |
 | podman | `podman/vX.Y.Z` | `podman-remote-darwin-amd64.tar.gz` | Remote client only (`podman`), cross-compiled with CGO off; two build tags patched back to their v5 values. Podman 6 dropped Intel Macs and has no x86_64 `applehv` machine image, so point it at a Linux host or VM running podman (e.g. Lima's `podman` template). |
 
 These are unofficial builds. Upstream sources are used as-is except where a

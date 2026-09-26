@@ -10,8 +10,9 @@ This repo holds two things:
    `~/bin`. `~/bin/update-cli-tools.sh` is a symlink to this file, and a
    LaunchAgent runs it unattended at login and weekly, so a broken commit
    breaks updates on the Mac.
-2. CI workflows that build CLI tools for **Intel Macs (darwin/amd64)** after
-   their upstream projects stop shipping Intel Mac builds. The repo contains
+2. CI workflows that build CLI tools for **Intel Macs (darwin/amd64)** when
+   upstream stopped shipping Intel Mac builds (podman) or never shipped
+   Mac binaries at all (bash). The repo contains
    no tool source code. Each workflow checks out upstream at a release tag,
    builds it, and publishes a GitHub release here, which
    `update-cli-tools.sh` then installs.
@@ -31,7 +32,10 @@ This repo holds two things:
 `update-cli-tools.sh` depends on these rules:
 
 - **Tag:** `<tool>/<upstream tag>`, using the upstream tag exactly
-  (e.g. `podman/v6.1.2`). The script lists releases, filters them by the
+  (e.g. `podman/v6.1.2`). If upstream has no tags, use a version the tool
+  itself reports, and explain it in the workflow (bash: `bash/5.3.20`, where
+  `5.3` is the tarball and `20` is the official patch level shown in
+  `BASH_VERSINFO`). The script lists releases, filters them by the
   `<tool>/` prefix, and picks the highest version with `sort -V`.
 - **Asset name:** fixed per tool, with no version in the name
   (e.g. `podman-remote-darwin-amd64.tar.gz`), plus a `<asset>.sha256` file.
@@ -59,6 +63,9 @@ If you change any of these rules, update the tool's block in
 - Keep `fetch` as the only way it downloads API responses: it reads the whole
   response before parsing (see the SIGPIPE comment in the script) and adds
   the GitHub token.
+- Install binaries by writing a new file and renaming it over the old one,
+  never by overwriting in place (see `install_from_archive`). Tools like
+  `bash` may be running while the updater replaces them.
 - Only download x86_64/amd64 Mac assets. The target Mac is Intel.
 - Tools with no working upstream Intel Mac build belong in a workflow here,
   installed with `imt_latest_tag`. Don't compile them in the script.
@@ -105,12 +112,16 @@ change behavior.
 
 ## Adding a new tool
 
-1. Confirm upstream really dropped darwin/amd64. Check which assets the latest
+1. Confirm upstream really doesn't ship a usable darwin/amd64 build. Check which assets the latest
    release actually has, and read the release notes. Also check whether the
    tool needs a runtime piece that doesn't exist for Intel Macs, such as a VM
    image or helper binaries. If it does, say so in the README instead of
    shipping a binary that can't work.
-2. Copy `podman.yml` to `<tool>.yml` and adapt it.
+2. Copy the closest existing workflow to `<tool>.yml` and adapt it. For
+   pure-Go tools cross-compiled on Linux, start from `podman.yml`. For C or
+   autoconf tools that need the macOS SDK, start from `bash.yml`, which runs
+   natively on `macos-26-intel`, verifies GPG signatures on the sources, and
+   fails if anything outside `/usr/lib` or `/System` gets linked.
 3. Add a row to the README table.
 4. Push, then trigger it with `gh workflow run <tool>.yml --repo
    503stack/intel-mac-tools` and watch it with `gh run watch`.

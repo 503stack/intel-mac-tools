@@ -1,0 +1,114 @@
+name: bash
+
+# Builds GNU bash for Intel Macs (darwin/amd64) from the latest release
+# tarball plus all official patches (macOS itself only ships bash 3.2 and
+# upstream publishes no binaries). C with autoconf, so it needs a real macOS
+# SDK: runs natively on an Intel runner. Runs daily and publishes a release
+# tagged "bash/<major>.<minor>.<patchlevel>", e.g. bash/5.3.20.
+on:
+  schedule:
+    - cron: "43 5 * * *"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Bash base version to build, e.g. 5.3 (default: latest)"
+        required: false
+
+permissions:
+  contents: write
+
+env:
+  GNU: https://ftp.gnu.org/gnu/bash
+
+jobs:
+  build:
+    runs-on: macos-26-intel
+    steps:
+      # bash has no tags: a release is bash-X.Y.tar.gz plus official patches
+      # bashXY-001..NNN, so the version we publish is X.Y.<number of patches>
+      - name: Resolve upstream version
+        id: ver
+        env:
+          GH_TOKEN: ${{ github.token }}
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          base="${INPUT_VERSION:-$(curl -fsSL "$GNU/" | grep -oE 'bash-[0-9]+\.[0-9]+\.tar\.gz"' | tr -d '"' | sed -E 's/^bash-|\.tar\.gz$//g' | sort -V | tail -1)}"
+          [ -n "$base" ] || { echo "::error::could not determine latest bash version"; exit 1; }
+          nodot="${base//./}"
+          patches=$(curl -fsSL "$GNU/bash-$base-patches/" 2>/dev/null | grep -oE "bash$nodot-[0-9]{3}\"" | tr -d '"' | sort -u || true)
+          level=$(printf '%s\n' "$patches" | grep -c . || true)
+          version="$base.$level"
+          echo "base=$base" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          printf '%s\n' "$patches" > patches.txt
+          echo "bash $base with $level official patches -> $version"
+          if gh release view "bash/$version" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "$version already released, nothing to do"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      # verify the tarball and every patch against GNU's keyring before use
+      - name: Download and verify sources
+        if: steps.ver.outputs.skip != 'true'
+        env:
+          BASE: ${{ steps.ver.outputs.base }}
+        run: |
+          curl -fsSLO https://ftp.gnu.org/gnu/gnu-keyring.gpg
+          verify() { curl -fsSLO "$1" && curl -fsSLO "$1.sig" && gpgv --keyring ./gnu-keyring.gpg "$(basename "$1").sig" "$(basename "$1")"; }
+          verify "$GNU/bash-$BASE.tar.gz"
+          mkdir patches
+          while read -r p; do
+            [ -n "$p" ] || continue
+            (cd patches && verify "$GNU/bash-$BASE-patches/$p")
+          done < patches.txt
+
+      - name: Apply patches
+        if: steps.ver.outputs.skip != 'true'
+        env:
+          BASE: ${{ steps.ver.outputs.base }}
+        run: |
+          tar xzf "bash-$BASE.tar.gz"
+          cd "bash-$BASE"
+          while read -r p; do
+            [ -n "$p" ] || continue
+            patch -p0 --forward --batch < "../patches/$p"
+          done < ../patches.txt
+
+      - name: Build
+        if: steps.ver.outputs.skip != 'true'
+        env:
+          BASE: ${{ steps.ver.outputs.base }}
+          VERSION: ${{ steps.ver.outputs.version }}
+        run: |
+          cd "bash-$BASE"
+          # the runner has Homebrew in /usr/local (on the default search path):
+          # no NLS so its libintl isn't picked up, and use the system libiconv
+          ./configure --prefix=/usr/local --disable-nls --without-libiconv-prefix --without-libintl-prefix
+          make -j"$(sysctl -n hw.ncpu)"
+          file bash
+          otool -L bash
+          # smoke test: right version, and a few bash-4+/5 features work
+          ./bash --version | head -1
+          ./bash -c '[ "${BASH_VERSINFO[0]}.${BASH_VERSINFO[1]}.${BASH_VERSINFO[2]}" = "$1" ]' _ "$VERSION"
+          ./bash -ec 'declare -A m=([k]=v); [[ ${m[k]} == v ]]; s=Ab; [[ ${s,,} == ab ]]; mapfile -t a < <(printf "1\n2\n"); (( ${#a[@]} == 2 ))'
+          # only system libraries may be linked (no Homebrew/MacPorts leakage)
+          if otool -L bash | tail -n +2 | grep -vE '^[[:space:]]*(/usr/lib/|/System/Library/)'; then
+            echo "::error::bash links non-system libraries (above)"; exit 1
+          fi
+          tar czf ../bash-darwin-amd64.tar.gz bash
+          cd ..
+          shasum -a 256 bash-darwin-amd64.tar.gz > bash-darwin-amd64.tar.gz.sha256
+
+      - name: Release
+        if: steps.ver.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BASE: ${{ steps.ver.outputs.base }}
+          VERSION: ${{ steps.ver.outputs.version }}
+        run: |
+          gh release create "bash/$VERSION" \
+            bash-darwin-amd64.tar.gz bash-darwin-amd64.tar.gz.sha256 \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "bash $VERSION (darwin/amd64)" \
+            --latest=false \
+            --notes "Unofficial GNU bash build for Intel Macs: [bash-$BASE.tar.gz]($GNU/bash-$BASE.tar.gz) plus official patches up to $VERSION ([patches]($GNU/bash-$BASE-patches/)), GPG-verified against the GNU keyring. Built natively on \`macos-26-intel\`."

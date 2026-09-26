@@ -76,8 +76,11 @@ install_from_archive() {
     rm -rf "$tmp"
     return 1
   fi
-  cp "$found" "$BIN_DIR/$name"
-  chmod +x "$BIN_DIR/$name"
+  # copy then rename: overwriting a running binary in place (e.g. an open
+  # bash) can crash it on macOS; a rename gives the new file a fresh inode
+  cp "$found" "$BIN_DIR/$name.new"
+  chmod +x "$BIN_DIR/$name.new"
+  mv "$BIN_DIR/$name.new" "$BIN_DIR/$name"
   rm -rf "$tmp"
 }
 
@@ -211,3 +214,7 @@ update "flux-operator" "$v" install_from_archive "https://github.com/controlplan
 ### podman (remote client only; upstream v6 dropped Intel Macs, so it's built in 503stack/intel-mac-tools) ###
 v=$(imt_latest_tag podman | sed 's/^v//')
 update "podman" "$v" install_from_archive "https://github.com/503stack/intel-mac-tools/releases/download/podman/v${v}/podman-remote-darwin-amd64.tar.gz"
+
+### bash (macOS only ships 3.2; GNU publishes source only, built in 503stack/intel-mac-tools) ###
+v=$(imt_latest_tag bash)
+update "bash" "$v" install_from_archive "https://github.com/503stack/intel-mac-tools/releases/download/bash/${v}/bash-darwin-amd64.tar.gz"
