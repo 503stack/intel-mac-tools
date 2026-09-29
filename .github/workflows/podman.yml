@@ -15,7 +15,7 @@ on:
 
 env:
   # renovate: datasource=github-releases depName=containers/podman
-  PODMAN_VERSION: v6.1.2
+  PODMAN_VERSION: v6.1.3
 
 permissions:
   contents: write
