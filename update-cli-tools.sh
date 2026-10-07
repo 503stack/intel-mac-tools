@@ -245,6 +245,16 @@ update "flux" "$v" install_from_archive "https://github.com/fluxcd/flux2/release
 v=$(gh_latest_tag controlplaneio-fluxcd/flux-operator | sed 's/^v//')
 update "flux-operator" "$v" install_from_archive "https://github.com/controlplaneio-fluxcd/flux-operator/releases/download/v${v}/flux-operator_${v}_darwin_amd64.tar.gz"
 
+### yt-dlp (standalone PyInstaller build; universal2, includes x86_64; tags have no "v") ###
+v=$(gh_latest_tag yt-dlp/yt-dlp)
+update "yt-dlp" "$v" install_raw "https://github.com/yt-dlp/yt-dlp/releases/download/${v}/yt-dlp_macos"
+
+### ffmpeg + ffprobe (FFmpeg publishes source only; ffmpeg.org links evermeet.cx's static x86_64 builds) ###
+v=$(json_field "$(fetch https://evermeet.cx/ffmpeg/info/ffmpeg/release)" version)
+update "ffmpeg" "$v" install_from_archive "https://evermeet.cx/ffmpeg/ffmpeg-${v}.zip"
+v=$(json_field "$(fetch https://evermeet.cx/ffmpeg/info/ffprobe/release)" version)
+update "ffprobe" "$v" install_from_archive "https://evermeet.cx/ffmpeg/ffprobe-${v}.zip"
+
 ### podman (remote client only; upstream v6 dropped Intel Macs, so it's built in 503stack/intel-mac-tools) ###
 v=$(imt_latest_tag podman | sed 's/^v//')
 update "podman" "$v" install_from_archive "https://github.com/503stack/intel-mac-tools/releases/download/podman/v${v}/podman-remote-darwin-amd64.tar.gz"
