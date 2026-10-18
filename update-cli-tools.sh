@@ -19,6 +19,18 @@ while [ -L "$SCRIPT" ]; do
 done
 REPO=$(cd "$(dirname "$SCRIPT")" && pwd)
 
+# RunAtLoad fires at login, often before the network is up: wait up to ~2 min
+# for github.com to answer (any HTTP response counts), then carry on regardless
+wait_for_network() {
+  local _
+  for _ in $(seq 1 24); do
+    curl -sS --max-time 5 -o /dev/null https://github.com 2>/dev/null && return 0
+    sleep 5
+  done
+  log "WARNING: no network after 2 minutes, trying anyway"
+}
+[ -n "${CLI_TOOLS_SELF_UPDATED:-}" ] || wait_for_network
+
 # Self-update: fast-forward the clone's main from the public HTTPS URL (no SSH
 # keys needed under launchd), and re-exec once if anything changed. git swaps
 # files in via a new inode, so the copy bash is currently reading isn't
