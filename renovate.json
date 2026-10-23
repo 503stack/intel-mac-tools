@@ -1,11 +1,8 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": [
-    "github>503stack/renovate-config",
-    "github>503stack/renovate-config:automerge"
+    "github>503stack/renovate-config"
   ],
-  "automergeType": "pr",
-  "platformAutomerge": false,
   "customDatasources": {
     "gnu-bash": {
       "description": "Base releases from the ftp.gnu.org/gnu/bash listing (bash-X.Y.tar.gz)",
