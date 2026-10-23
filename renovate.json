@@ -6,18 +6,6 @@
   ],
   "automergeType": "pr",
   "platformAutomerge": false,
-  "customManagers": [
-    {
-      "customType": "regex",
-      "description": "Upstream tool versions pinned in the build workflows",
-      "managerFilePatterns": [
-        "/^\\.github/workflows/[^/]+\\.ya?ml$/"
-      ],
-      "matchStrings": [
-        "# renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+)(?: packageName=(?<packageName>\\S+))?\\s+[A-Z_]+: \"?(?<currentValue>[^\"\\s]+)\"?"
-      ]
-    }
-  ],
   "customDatasources": {
     "gnu-bash": {
       "description": "Base releases from the ftp.gnu.org/gnu/bash listing (bash-X.Y.tar.gz)",
