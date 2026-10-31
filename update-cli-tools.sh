@@ -195,6 +195,36 @@ install_dmg_app() {
   rm -rf "$target.old" "$tmp"
 }
 
+# installs a Freelens extension release tarball (npm layout, files under
+# package/) into ~/.freelens/extensions/<ext_dir>, where Freelens links it
+# from; checked against the .tgz.sha256 published next to it. Freelens picks
+# the new version up on its next start.
+install_freelens_ext() {
+  local name="$1" url="$2" ext_dir="$3"
+  local target="$HOME/.freelens/extensions/$ext_dir"
+  local tmp; tmp=$(mktemp -d)
+  curl -fsSL -o "$tmp/ext.tgz" "$url"
+  curl -fsSL -o "$tmp/ext.tgz.sha256" "$url.sha256"
+  if [ "$(awk '{print $1}' "$tmp/ext.tgz.sha256")" != "$(shasum -a 256 "$tmp/ext.tgz" | awk '{print $1}')" ]; then
+    log "ERROR: sha256 mismatch for $url"
+    rm -rf "$tmp"
+    return 1
+  fi
+  tar xzf "$tmp/ext.tgz" -C "$tmp"
+  if [ ! -f "$tmp/package/package.json" ]; then
+    log "ERROR: no package/package.json inside $url"
+    rm -rf "$tmp"
+    return 1
+  fi
+  mkdir -p "$(dirname "$target")"
+  rm -rf "$target.new"
+  mv "$tmp/package" "$target.new"
+  rm -rf "$target.old" 2>/dev/null
+  [ -d "$target" ] && mv "$target" "$target.old"
+  mv "$target.new" "$target"
+  rm -rf "$target.old" "$tmp"
+}
+
 update() {
   local name="$1" latest="$2" install_fn="$3" url="$4" src_name="${5:-}"
   if [ -z "$latest" ]; then
@@ -291,6 +321,10 @@ update "flux-operator" "$v" install_from_archive "https://github.com/controlplan
 ### freelens (Kubernetes GUI; .dmg installed into /Applications/Freelens.app) ###
 v=$(gh_latest_tag freelensapp/freelens | sed 's/^v//')
 update "freelens" "$v" install_dmg_app "https://github.com/freelensapp/freelens/releases/download/v${v}/Freelens-${v}-macos-amd64.dmg" "Freelens"
+
+### freelens fluxcd extension (6.x needs Freelens 2.x; registered in Freelens via its Extensions page) ###
+v=$(gh_latest_tag freelensapp/freelens-fluxcd-extension | sed 's/^v//')
+update "freelens-fluxcd-extension" "$v" install_freelens_ext "https://github.com/freelensapp/freelens-fluxcd-extension/releases/download/v${v}/freelensapp-fluxcd-extension-${v}.tgz" "freelensapp--fluxcd-extension"
 
 ### yt-dlp (standalone PyInstaller build; universal2, includes x86_64; tags have no "v") ###
 v=$(gh_latest_tag yt-dlp/yt-dlp)
