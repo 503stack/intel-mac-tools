@@ -164,6 +164,37 @@ install_tree() {
   rm -rf "$target.old" "$tmp"
 }
 
+# installs a GUI app from a .dmg into /Applications/<app_name>.app, atomically
+# replacing it -- skipped (and retried next run) while the app is running
+install_dmg_app() {
+  local name="$1" url="$2" app_name="$3"
+  local target="/Applications/$app_name.app"
+  if pgrep -qf "$target/Contents/MacOS/"; then
+    log "$name: $app_name is running, deferring update to next run"
+    return 1
+  fi
+  local tmp; tmp=$(mktemp -d)
+  curl -fsSL -o "$tmp/image.dmg" "$url"
+  if ! hdiutil attach -quiet -nobrowse -readonly -mountpoint "$tmp/mnt" "$tmp/image.dmg"; then
+    log "ERROR: could not mount dmg from $url"
+    rm -rf "$tmp"
+    return 1
+  fi
+  if [ ! -d "$tmp/mnt/$app_name.app" ]; then
+    log "ERROR: could not find '$app_name.app' inside dmg from $url"
+    hdiutil detach -quiet "$tmp/mnt"
+    rm -rf "$tmp"
+    return 1
+  fi
+  rm -rf "$target.new"
+  ditto "$tmp/mnt/$app_name.app" "$target.new"
+  hdiutil detach -quiet "$tmp/mnt"
+  rm -rf "$target.old" 2>/dev/null
+  [ -d "$target" ] && mv "$target" "$target.old"
+  mv "$target.new" "$target"
+  rm -rf "$target.old" "$tmp"
+}
+
 update() {
   local name="$1" latest="$2" install_fn="$3" url="$4" src_name="${5:-}"
   if [ -z "$latest" ]; then
@@ -256,6 +287,10 @@ update "flux" "$v" install_from_archive "https://github.com/fluxcd/flux2/release
 ### flux-operator ###
 v=$(gh_latest_tag controlplaneio-fluxcd/flux-operator | sed 's/^v//')
 update "flux-operator" "$v" install_from_archive "https://github.com/controlplaneio-fluxcd/flux-operator/releases/download/v${v}/flux-operator_${v}_darwin_amd64.tar.gz"
+
+### freelens (Kubernetes GUI; .dmg installed into /Applications/Freelens.app) ###
+v=$(gh_latest_tag freelensapp/freelens | sed 's/^v//')
+update "freelens" "$v" install_dmg_app "https://github.com/freelensapp/freelens/releases/download/v${v}/Freelens-${v}-macos-amd64.dmg" "Freelens"
 
 ### yt-dlp (standalone PyInstaller build; universal2, includes x86_64; tags have no "v") ###
 v=$(gh_latest_tag yt-dlp/yt-dlp)
