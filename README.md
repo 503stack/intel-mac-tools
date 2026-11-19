@@ -87,8 +87,8 @@ re-run the install step.
 
 The `podman` built here is only the client. Containers run in a Lima VM (kept
 current by the updater's `lima`), started on demand. The VM runs **Fedora 45**
-(Beta, until it's released and Lima's `template:podman` moves to it), which
-ships a podman 6 server to match the client.
+(Lima's `template:podman` since Lima 2.3), which ships a podman 6 server to
+match the client.
 
 In `~/.zshrc`, map `podman machine` onto the VM and point Docker-API clients
 (testcontainers, kind, devcontainers, ...) at the same socket:
@@ -119,9 +119,7 @@ podman() {
         print
       fi
       limactl delete -f $vm 2>/dev/null
-      # Fedora 45 Beta (podman 6) until Lima's template:podman moves past Fedora 44; then drop --set
       limactl start --name=$vm --cpus=4 --memory=8 --disk=100 --mount-writable --tty=false \
-        --set '.images = [{"location": "https://download.fedoraproject.org/pub/fedora/linux/releases/test/45_Beta/Cloud/x86_64/images/Fedora-Cloud-Base-Generic-45_Beta-1.3.x86_64.qcow2", "arch": "x86_64", "digest": "sha256:06bd4382a3bc5e5f94cd520f9ee15bdfb38d7bb72552b27fe06d581ba9a84292"}]' \
         template:podman || return
       # LLMNR in the Fedora guest collides with macOS on port 5355 (noisy forward warnings)
       limactl shell $vm sudo sh -c 'mkdir -p /etc/systemd/resolved.conf.d && printf "[Resolve]\nLLMNR=no\n" > /etc/systemd/resolved.conf.d/no-llmnr.conf && systemctl restart systemd-resolved'
@@ -154,9 +152,6 @@ To boot it at login instead, run `limactl autostart enable podman`.
   like it does with podman machine. Lima forwards published ports to
   `localhost` automatically.
 - `reset` builds the VM with these fixes on top of `template:podman`:
-  - **Fedora 45 Beta image**, pinned by URL and SHA-256 via `--set '.images=…'`.
-    Once Fedora 45 is out the VM just keeps updating. Remove the `--set` when
-    Lima's template ships Fedora 45 or later.
   - **SELinux:** Fedora 45's policy denies `sshd_session_t` (OpenSSH 10's
     `sshd-session`) `connectto` on the rootless podman socket
     (`container_runtime_t`). That breaks Lima's ssh socket forward (the host
