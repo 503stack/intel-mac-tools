@@ -66,11 +66,15 @@ save_version() {
 }
 
 # Use an authenticated GitHub API token when available (60/hr -> 5000/hr).
-# Falls back to unauthenticated silently if gh isn't installed or logged out.
+# Falls back to unauthenticated (logged) if gh isn't installed or logged out.
+# launchd's PATH is only /usr/bin:/bin:/usr/sbin:/sbin, so look in ~/bin too.
 GH_TOKEN=""
-if command -v gh >/dev/null 2>&1; then
-  GH_TOKEN="$(gh auth token 2>/dev/null || true)"
+GH_BIN=$(command -v gh 2>/dev/null || true)
+[ -z "$GH_BIN" ] && [ -x "$BIN_DIR/gh" ] && GH_BIN="$BIN_DIR/gh"
+if [ -n "$GH_BIN" ]; then
+  GH_TOKEN="$("$GH_BIN" auth token 2>/dev/null || true)"
 fi
+[ -n "$GH_TOKEN" ] || log "WARNING: no gh token (run 'gh auth login'), GitHub API limited to 60 requests/hour"
 
 # fetch a URL fully into memory first, THEN parse it -- piping curl directly
 # into awk/grep with an early exit can SIGPIPE curl mid-download and silently
