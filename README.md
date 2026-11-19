@@ -31,6 +31,17 @@ Installs single binaries into `~/bin` and whole release trees into `~/lib/<tool>
 and runs are logged to `~/Library/Logs/cli-tools-update.log`. It uses `gh auth
 token`, when available, for a higher GitHub API rate limit.
 
+The azure-cli tarball has no Python of its own, so the script also keeps the
+python.org framework build of the Python version azure-cli needs (`PY_VER` in
+`~/lib/azure-cli/bin/az`) at its latest patch release, in
+`/Library/Frameworks/Python.framework`. Point `AZ_PYTHON` at
+`/Library/Frameworks/Python.framework/Versions/<PY_VER>/bin/python<PY_VER>`.
+The `.pkg` is checked for the Python Software Foundation signature and
+installed without its "Update Shell Profile" option. Installing it needs root,
+so the LaunchAgent run only logs that Python is missing or outdated. Run
+`~/bin/update-cli-tools.sh` from a terminal to install it (it asks for your
+password).
+
 Setup on the Mac:
 
 ```bash

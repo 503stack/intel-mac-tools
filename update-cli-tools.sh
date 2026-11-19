@@ -225,6 +225,50 @@ install_freelens_ext() {
   rm -rf "$target.old" "$tmp"
 }
 
+# installs a python.org framework build (.pkg, universal2) into
+# /Library/Frameworks/Python.framework. The pkg needs root, which launchd runs
+# don't have: it installs when sudo works without a prompt or when run from a
+# terminal (prompts for the password), and otherwise logs and retries next run.
+install_python_pkg() {
+  local name="$1" url="$2" minor="$3"
+  local tmp; tmp=$(mktemp -d)
+  curl -fsSL -o "$tmp/python.pkg" "$url"
+  local sig; sig=$(pkgutil --check-signature "$tmp/python.pkg" 2>&1)
+  if [[ "$sig" != *"Developer ID Installer: Python Software Foundation (BMM5U3QVKW)"* ]]; then
+    log "ERROR: $url is not signed by the Python Software Foundation"
+    rm -rf "$tmp"
+    return 1
+  fi
+  # the pkg's "Update Shell Profile" choice is on by default and appends PATH
+  # lines to ~/.zprofile; PATH is managed in ~/.zshrc, so switch it off
+  cat > "$tmp/choices.xml" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<array>
+  <dict>
+    <key>attributeSetting</key><integer>0</integer>
+    <key>choiceAttribute</key><string>selected</string>
+    <key>choiceIdentifier</key><string>org.python.Python.PythonProfileChanges-$minor</string>
+  </dict>
+</array>
+</plist>
+EOF
+  if ! sudo -n true 2>/dev/null \
+     && ! { [ -t 0 ] && sudo -v -p "update-cli-tools: password to install ${url##*/}: "; }; then
+    log "$name: installing needs root, run ~/bin/update-cli-tools.sh from a terminal"
+    rm -rf "$tmp"
+    return 1
+  fi
+  # shellcheck disable=SC2024 # the log is ours; only installer needs root
+  if ! sudo installer -pkg "$tmp/python.pkg" -applyChoiceChangesXML "$tmp/choices.xml" -target / >>"$LOG" 2>&1; then
+    log "ERROR: installer failed for $url"
+    rm -rf "$tmp"
+    return 1
+  fi
+  rm -rf "$tmp"
+}
+
 update() {
   local name="$1" latest="$2" install_fn="$3" url="$4" src_name="${5:-}"
   if [ -z "$latest" ]; then
@@ -305,6 +349,32 @@ update "terraform-ls" "$v" install_from_archive "https://releases.hashicorp.com/
 ### azure-cli (tarball, extracted whole into ~/lib/azure-cli) ###
 v=$(gh_latest_tag Azure/azure-cli | sed 's/^azure-cli-//')
 update "azure-cli" "$v" install_tree "https://github.com/Azure/azure-cli/releases/download/azure-cli-${v}/azure-cli-${v}-macos-x86_64.tar.gz" "azure-cli"
+
+### python (python.org framework build that azure-cli's launcher runs on, via AZ_PYTHON) ###
+# Tracks the Python minor version the installed azure-cli wants (PY_VER in its
+# launcher), not the newest Python overall, and installs that minor's latest
+# patch release that has a macOS pkg.
+py_minor=$(awk -F'"' '/^PY_VER=/{print $2; exit}' "$HOME/lib/azure-cli/bin/az" 2>/dev/null)
+if [ -z "$py_minor" ]; then
+  log "ERROR: could not read PY_VER from ~/lib/azure-cli/bin/az, skipping python"
+else
+  # the framework lives outside ~/bin and may be changed by hand, so record
+  # what is actually installed rather than trusting the state file
+  py_bin="/Library/Frameworks/Python.framework/Versions/$py_minor/bin/python$py_minor"
+  if [ -x "$py_bin" ]; then
+    save_version "python" "$("$py_bin" -c 'import platform; print(platform.python_version())')"
+  else
+    grep -v "^python " "$STATE" > "$STATE.tmp" 2>/dev/null || true
+    mv "$STATE.tmp" "$STATE"
+  fi
+  v="" py_pkg=""
+  for cand in $(printf '%s' "$(fetch https://www.python.org/ftp/python/)" \
+                | grep -oE "href=\"${py_minor//./\\.}\.[0-9]+/\"" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | sort -Vr | head -5); do
+    py_pkg=$(printf '%s' "$(fetch "https://www.python.org/ftp/python/$cand/")" | grep -oE "python-${cand//./\\.}-macos[0-9]+\.pkg" | head -1)
+    if [ -n "$py_pkg" ]; then v="$cand"; break; fi
+  done
+  update "python" "$v" install_python_pkg "https://www.python.org/ftp/python/${v}/${py_pkg}" "$py_minor"
+fi
 
 ### lima (main tree + additional guestagents tarball) ###
 v=$(gh_latest_tag lima-vm/lima | sed 's/^v//')
